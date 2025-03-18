@@ -1,0 +1,38 @@
+# https://hub.docker.com/_/postgres
+
+# Use postgres/example user/password credentials
+version: '3.9'
+
+services:
+
+  db:
+    image: postgres
+    # set shared memory limit when using docker-compose
+    shm_size: 128mb
+    # or set shared memory limit when deploy via swarm stack
+    #volumes:
+    #  - type: tmpfs
+    #    target: /dev/shm
+    #    tmpfs:
+    #      size: 134217728 # 128*2^20 bytes = 128Mb
+    environment:
+      POSTGRES_DB: movie_db
+      POSTGRES_USER: manuel94
+      POSTGRES_PASSWORD: ${DB_PASS} # Sets password for admin
+    volumes:
+      - movie_db-data:/var/lib/postgresql/data
+    ports:
+      - 5433:5432 # Map port 5433 on the Docker host to TCP port 5432 in the container.
+    env_file:
+      - .env
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+
+volumes:
+  movie_db-data: 
+
+
