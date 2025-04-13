@@ -1,150 +1,104 @@
-import abc
-from model import Movie
+from typing import Type, List, TypeVar, Any
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import NoResultFound
+from model.base import Base  # Ensure that `Base` is imported from your models module
+from repository import AbstractRepository
 
-# https://www.cosmicpython.com/book/chapter_02_repository.html
+# Create a TypeVar to ensure only models derived from Base are accepted
+TModel = TypeVar('TModel', bound=Base) # type: ignore
 
-class AbstractRepository(abc.ABC):
+class GenericSqlAlchemyRepository(AbstractRepository, Type[TModel]):
     """
-    Abstract base class for repositories. Defines the required methods 
-    for any repository implementation that interacts with data storage.
+    A generic repository class for managing any SQLAlchemy model.
 
-    Methods:
-        add(data): Adds a new record to the repository.
-        get(reference): Retrieves a record by its unique reference.
-    
-    Example:
-        class InMemoryRepository(AbstractRepository):
-            def __init__(self):
-                self._data = {}
-
-            def add(self, movie: Movie):
-                self._data[movie.id] = movie
-
-            def get(self, reference):
-                return self._data.get(reference)
-    """
-
-    @abc.abstractmethod
-    def add(self, data):
-        """
-        Adds an object to the repository.
-        
-        Args:
-            data: The object to be added to the repository.
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def get(self, reference):
-        """
-        Retrieves an object from the repository by reference.
-
-        Args:
-            reference: The unique identifier of the object.
-
-        Returns:
-            An instance of the stored object.
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
-        """
-        raise NotImplementedError
-
-
-class MovieSqlAlchemyRepository(AbstractRepository):
-    """
-    SQLAlchemy-based repository implementation for managing Movie records.
+    This class abstracts the SQLAlchemy CRUD operations for any given model.
 
     Args:
         session: SQLAlchemy session object used for database transactions.
-
-    Methods:
-        add(data): Adds a Movie object to the database session.
-        get(reference): Retrieves a Movie object from the database by reference.
-        list(): Returns all Movie objects from the database.
-
-    Example:
-        from sqlalchemy.orm import sessionmaker
-        from sqlalchemy import create_engine
-
-        engine = create_engine('sqlite:///movies.db')
-        Session = sessionmaker(bind=engine)
-        session = Session()
-
-        repo = MovieSqlAlchemyRepository(session)
-        movie = Movie(id=1, title="Inception", year=2010)
-        repo.add(movie)
-        session.commit()
-
-        retrieved_movie = repo.get(1)
-        print(retrieved_movie.title)  # Output: Inception
+        model_class: The SQLAlchemy model class to be managed by this repository.
     """
 
-    def __init__(self, session):
+    def __init__(self, session: Session, model_class: Type[TModel]):
         """
-        Initializes the repository with a database session.
-
+        Initializes the repository with a database session and a model class.
+        
         Args:
-            session: An active SQLAlchemy session.
+            session: SQLAlchemy session object.
+            model_class: The model class (which is a subclass of `Base`).
         """
         self.session = session
-        self.model_class = Movie
+        self.model_class = model_class
 
-    def add(self, data):
-        """
-        Adds a Movie instance to the session.
-
-        Args:
-            data (Movie): The movie instance to add.
-
-        Example:
-            movie = Movie(id=1, title="Interstellar", year=2014)
-            repo.add(movie)
-            session.commit()
-        """
+    def add(self, data: TModel) -> None:
+        """Adds an object to the session."""
         self.session.add(data)
+        self.session.commit()
 
-    def get(self, value, by="reference"):
+    def get(self, value: int, by: str = "reference") -> TModel:
         """
-        Retrieves a Movie instance by a given attribute.
-
+        Retrieves an object by its unique reference or another attribute.
+        
         Args:
             value: The value to search for.
-            by (str): The attribute to filter by ('reference' or 'title').
-
+            by (str): The attribute to filter by (e.g., 'reference', 'name', etc.).
+        
         Returns:
-            Movie: The retrieved Movie instance.
+            TModel: The retrieved object instance.
 
-        Example:
-            # Get movie by reference
-            retrieved_movie = repo.get(1)
-            print(retrieved_movie.title)
-
-            # Get movie by title
-            retrieved_movie = repo.get("Inception", by="title")
-            print(retrieved_movie.title)
+        Raises:
+            NoResultFound: If no record is found matching the query.
         """
         if by == "reference":
-            return self.session.query(self.model_class).filter_by(reference=value).one()
-        elif by == "title":
-            return self.session.query(self.model_class).filter_by(title=value).one()
+            result = self.session.query(self.model_class).filter_by(id=value).one_or_none()
         else:
-            raise ValueError("Invalid filter. Use 'reference' or 'title'.")
+            result = self.session.query(self.model_class).filter_by(**{by: value}).one_or_none()
 
+        if result is None:
+            raise NoResultFound(f"No {self.model_class.__name__} found with {by} = {value}")
+        
+        return result
 
-    def list(self):
+    def list(self) -> List[TModel]:
+        """Returns all instances of the model class stored in the database."""
+        return self.session.query(self.model_class).all()
+
+    def update(self, reference: int, updated_data: dict) -> TModel:
         """
-        Returns all movies stored in the database.
+        Updates an object in the database.
+
+        Args:
+            reference (int): The unique reference (usually the primary key) of the record.
+            updated_data (dict): The data to update the object with.
 
         Returns:
-            Query: A SQLAlchemy query object containing all movies.
+            TModel: The updated object.
 
-        Example:
-            movies = repo.list().all()
-            for movie in movies:
-                print(movie.title)
+        Raises:
+            NoResultFound: If no record is found matching the reference.
         """
-        return self.session.query(self.model_class)
+        obj = self.session.query(self.model_class).filter_by(id=reference).one_or_none()
+        if obj is None:
+            raise NoResultFound(f"{self.model_class.__name__} with reference {reference} not found.")
+        
+        for key, value in updated_data.items():
+            setattr(obj, key, value)
+        
+        self.session.commit()
+        return obj
+
+    def delete(self, reference: int) -> None:
+        """
+        Deletes an object from the database.
+
+        Args:
+            reference (int): The unique reference (usually the primary key) of the record.
+        
+        Raises:
+            NoResultFound: If no record is found matching the reference.
+        """
+        obj = self.session.query(self.model_class).filter_by(id=reference).one_or_none()
+        if obj is None:
+            raise NoResultFound(f"{self.model_class.__name__} with reference {reference} not found.")
+        
+        self.session.delete(obj)
+        self.session.commit()
