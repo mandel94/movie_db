@@ -2,8 +2,7 @@ from sqlalchemy import (
     create_engine, Column, Integer, String, Date, ForeignKey, Table, Float, Text, Boolean
 )
 from sqlalchemy.orm import relationship, declarative_base
-
-Base = declarative_base()
+from .base import Base
 
 # Association Tables
 movie_genre_table = Table(
