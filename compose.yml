@@ -12,12 +12,12 @@ services:
     #      size: 134217728 # 128*2^20 bytes = 128Mb
     environment:
       POSTGRES_DB: movie_db
-      POSTGRES_USER: manuel94
+      POSTGRES_USER: ${DB_USER} # Sets user for admin
       POSTGRES_PASSWORD: ${DB_PASS} # Sets password for admin
     volumes:
       - movie_db-data:/var/lib/postgresql/data
     ports:
-      - 5432:5432 # Map port 5433 on the Docker host to TCP port 5432 in the container.
+      - 5433:5432 # Map port 5433 on the Docker host to TCP port 5432 in the container.
     env_file:
       - .env
 
